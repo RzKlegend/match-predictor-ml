@@ -113,7 +113,7 @@ def calculate_team_elo(df, team_name, num_matches=50):
     return elo
 
 
-def ask_team(name_prompt, teams):
+def ask_country(name_prompt, teams):
     t = input(name_prompt).strip()
     if t in teams:
         return t
@@ -124,7 +124,7 @@ def ask_team(name_prompt, teams):
         choice = input(f"Enter exact team name from suggestions or press Enter to cancel: ").strip()
         if choice in teams:
             return choice
-    print(f"Team '{t}' not found and no selection made.")
+    print(f"Country '{t}' not found and no selection made.")
     return None
 
 
@@ -134,11 +134,11 @@ def main():
     clf = train_model(X, y)
 
     teams = sorted(list(team_gf.keys()))
-    print("\nEnter two teams to predict a match outcome. Example: Saudi Arabia")
-    home = ask_team('Home team: ', teams)
+    print("\nEnter two countries to predict a match outcome. Example: Saudi Arabia")
+    home = ask_country('Home country: ', teams)
     if not home:
         return
-    away = ask_team('Away team: ', teams)
+    away = ask_country('Away country: ', teams)
     if not away:
         return
     neutral_in = input('Is the match on neutral ground? (y/N): ').strip().lower()
