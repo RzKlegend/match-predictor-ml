@@ -1,8 +1,10 @@
 """Minimal ML-based match predictor.
 
-Loads `football_data.csv` if present, trains a simple RandomForest to predict match outcome
-(home win / draw / away win) using lightweight features derived from team historical stats.
-If dataset is missing, falls back to a small sample.
+Interactive CLI: asks for two teams, trains a small RandomForest from available data
+and outputs a predicted winner plus an ELO-based check computed from recent matches.
+
+Place `football_data.csv` in the project root to use real data. The script falls back
+to a small synthetic sample if the file is missing.
 """
 
 import pandas as pd
@@ -10,6 +12,7 @@ import numpy as np
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report
+from difflib import get_close_matches
 
 
 def load_dataset(path='football_data.csv', max_rows=None):
@@ -27,8 +30,8 @@ def load_dataset(path='football_data.csv', max_rows=None):
         for i in range(500):
             h = rng.choice(teams)
             a = rng.choice([t for t in teams if t != h])
-            hs = rng.poisson(1.5)
-            as_ = rng.poisson(1.2)
+            hs = int(rng.poisson(1.5))
+            as_ = int(rng.poisson(1.2))
             rows.append({'date': '2020-01-01', 'home_team': h, 'away_team': a, 'home_score': hs, 'away_score': as_, 'neutral': False})
         return pd.DataFrame(rows)
 
@@ -42,7 +45,7 @@ def prepare_features(df):
     # Target: 0=home win,1=draw,2=away win
     df['result'] = df.apply(lambda r: 0 if r['home_score']>r['away_score'] else (1 if r['home_score']==r['away_score'] else 2), axis=1)
 
-    # Team-level aggregates
+    # Team-level aggregates (goals for average)
     teams = pd.concat([df[['home_team','home_score']].rename(columns={'home_team':'team','home_score':'gf'}),
                        df[['away_team','away_score']].rename(columns={'away_team':'team','away_score':'gf'})])
     team_gf = teams.groupby('team')['gf'].mean().to_dict()
@@ -65,6 +68,15 @@ def prepare_features(df):
 
 
 def train_model(X, y):
+    if len(np.unique(y)) < 2:
+        print("Not enough classes to train. Using fallback random predictor.")
+        class Dummy:
+            def predict(self, X):
+                return np.zeros(len(X), dtype=int)
+            def predict_proba(self, X):
+                return np.tile([1.0, 0.0, 0.0], (len(X), 1))
+        return Dummy()
+
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=1, stratify=y)
     clf = RandomForestClassifier(n_estimators=100, random_state=1)
     clf.fit(X_train, y_train)
@@ -83,17 +95,72 @@ def predict_match(clf, team_gf, home, away, neutral=False):
     return label, prob
 
 
+def calculate_team_elo(df, team_name, num_matches=50):
+    """Compute a simple ELO-like rating from recent completed matches."""
+    home_matches = df[(df['home_team'] == team_name) & (df['home_score'].notna())].tail(num_matches)
+    away_matches = df[(df['away_team'] == team_name) & (df['away_score'].notna())].tail(num_matches)
+    elo = 1600
+    for _, row in pd.concat([home_matches, away_matches]).iterrows():
+        if row['home_team'] == team_name:
+            s_for = int(row['home_score']); s_against = int(row['away_score'])
+        else:
+            s_for = int(row['away_score']); s_against = int(row['home_score'])
+        if s_for > s_against:
+            elo += 16
+        elif s_for < s_against:
+            elo -= 16
+        # draws -> no change
+    return elo
+
+
+def ask_team(name_prompt, teams):
+    t = input(name_prompt).strip()
+    if t in teams:
+        return t
+    # try fuzzy matching
+    matches = get_close_matches(t, teams, n=3, cutoff=0.6)
+    if matches:
+        print(f"Team '{t}' not found. Did you mean: {', '.join(matches)} ?")
+        choice = input(f"Enter exact team name from suggestions or press Enter to cancel: ").strip()
+        if choice in teams:
+            return choice
+    print(f"Team '{t}' not found and no selection made.")
+    return None
+
+
 def main():
     df = load_dataset()
     X, y, team_gf = prepare_features(df)
     clf = train_model(X, y)
 
-    # Example: Saudi Arabia vs Uruguay
-    home = 'Saudi Arabia'
-    away = 'Uruguay'
-    label, prob = predict_match(clf, team_gf, home, away, neutral=False)
-    print(f"\nPrediction for {home} vs {away}: {label}")
+    teams = sorted(list(team_gf.keys()))
+    print("\nEnter two teams to predict a match outcome. Example: Saudi Arabia")
+    home = ask_team('Home team: ', teams)
+    if not home:
+        return
+    away = ask_team('Away team: ', teams)
+    if not away:
+        return
+    neutral_in = input('Is the match on neutral ground? (y/N): ').strip().lower()
+    neutral = neutral_in == 'y'
+
+    label, prob = predict_match(clf, team_gf, home, away, neutral=neutral)
+    print(f"\nModel prediction for {home} vs {away}: {label}")
     print(f"Probabilities (Home/Draw/Away): {prob}")
+
+    # ELO-based fallback/check
+    try:
+        elo_h = calculate_team_elo(df, home)
+        elo_a = calculate_team_elo(df, away)
+        if elo_h > elo_a:
+            elo_winner = home
+        elif elo_a > elo_h:
+            elo_winner = away
+        else:
+            elo_winner = 'Draw'
+        print(f"\nELO check — {home}: {elo_h}, {away}: {elo_a} -> {elo_winner}")
+    except Exception:
+        pass
 
 
 if __name__ == '__main__':
