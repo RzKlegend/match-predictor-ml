@@ -1,10 +1,9 @@
-"""Minimal ML-based match predictor.
+""" ML-based match predictor.
 
 Interactive CLI: asks for two teams, trains a small RandomForest from available data
 and outputs a predicted winner plus an ELO-based check computed from recent matches.
 
-Place `football_data.csv` in the project root to use real data. The script falls back
-to a small synthetic sample if the file is missing.
+
 """
 
 import pandas as pd
@@ -37,7 +36,7 @@ def load_dataset(path='football_data.csv', max_rows=None):
 
 
 def prepare_features(df):
-    # Drop matches without scores
+    # drop matches without scores
     df = df.dropna(subset=['home_score', 'away_score']).copy()
     df['home_score'] = df['home_score'].astype(int)
     df['away_score'] = df['away_score'].astype(int)
@@ -45,7 +44,7 @@ def prepare_features(df):
     # Target: 0=home win,1=draw,2=away win
     df['result'] = df.apply(lambda r: 0 if r['home_score']>r['away_score'] else (1 if r['home_score']==r['away_score'] else 2), axis=1)
 
-    # Team-level aggregates (goals for average)
+    # team-level aggregates (goals for average)
     teams = pd.concat([df[['home_team','home_score']].rename(columns={'home_team':'team','home_score':'gf'}),
                        df[['away_team','away_score']].rename(columns={'away_team':'team','away_score':'gf'})])
     team_gf = teams.groupby('team')['gf'].mean().to_dict()
@@ -61,7 +60,6 @@ def prepare_features(df):
         neutral = 1 if row.get('neutral', False) else 0
         X.append([h_gf, a_gf, h_gf - a_gf, neutral])
         y.append(row['result'])
-
     X = np.array(X)
     y = np.array(y)
     return X, y, team_gf
@@ -117,7 +115,7 @@ def ask_country(name_prompt, teams):
     t = input(name_prompt).strip()
     if t in teams:
         return t
-    # try fuzzy matching
+    # tryign fuzzy matching
     matches = get_close_matches(t, teams, n=3, cutoff=0.6)
     if matches:
         print(f"Team '{t}' not found. Did you mean: {', '.join(matches)} ?")
